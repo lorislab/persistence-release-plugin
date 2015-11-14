@@ -13,12 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.lorislab.maven.release.util;
+package org.lorislab.maven.release.persistence;
+
+import java.nio.file.Path;
+import java.util.Map;
 
 /**
  *
  * @author Andrej_Petras
  */
-public class PersistenceXMLUtil {
+public interface PersistenceModifier {
     
+    public void modifier(Path path, Map<String, String> values);
 }

@@ -15,7 +15,10 @@
  */
 package org.lorislab.maven.release.util;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -27,8 +30,13 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.spi.FileSystemProvider;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 /**
  * The file system utility.
@@ -59,6 +67,108 @@ public final class FileSystemUtil {
      */
     private FileSystemUtil() {
         // empty constructor
+    }
+
+    public static Properties loadProperties(String file) {
+        Properties result = new Properties();;
+        
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException("The property file is null!");
+        }
+        
+        Path propertyFile = Paths.get(file);
+        if (!Files.exists(propertyFile)) {
+            throw new RuntimeException("Missing properties filter file");
+        }
+        
+
+        
+
+        try (FileInputStream input = new FileInputStream(file)) {;
+            result.load(input);
+        }
+        return result;
+    }
+    public static Path createDirectory(Path parent, String name) {
+        Path result = null;
+        try {
+            if (name != null) {
+                result = parent.resolve(name);
+            } else {
+                result = parent;
+            }
+            
+            if (!Files.exists(result)) {
+                Files.createDirectories(result);
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException("Error creating the directory " + name + " in the directory " + parent.toString(), ex);
+        }
+        return result;
+    }
+    public static void processFileInsideZip(final Path zipFile, final Pattern pattern, final ProcessingCallback callback) {
+
+        try (FileSystem zipfs = ZIP_PROVIDER.newFileSystem(zipFile, new HashMap<String, Object>())) {
+            Files.walkFileTree(zipfs.getPath("/"), new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    boolean matches = pattern.matcher(file.toString()).matches();
+                    if (matches) {
+                        try {                            
+                            callback.execute(file);
+                        } catch (Exception ex) {
+                            ex.printStackTrace();
+                            throw new RuntimeException("Error execute the file: " + file.toString(), ex);
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (Exception ex) {
+            throw new RuntimeException("Error searching files inside the ZIP archive " + zipFile.toString(), ex);
+        }
+    }
+
+    /**
+     * Finds all files in the root directory corresponding the pattern.
+     *
+     * @param dir the root directory.
+     * @param pattern the file pattern.
+     * @return the set of corresponding files.
+     */
+    public static Set<Path> findFilesInDirectory(final Path dir, final Pattern pattern) {
+
+        final Set<Path> result = new HashSet<>();
+        try {
+            Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
+
+                @Override
+                public FileVisitResult preVisitDirectory(Path path,
+                        BasicFileAttributes atts) throws IOException {
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path path, BasicFileAttributes mainAtts)
+                        throws IOException {
+
+                    boolean matches = pattern.matcher(path.toString()).matches();
+                    if (matches) {
+                        result.add(path);
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+            });
+        } catch (Exception ex) {
+            throw new RuntimeException("Error searching files in the directory " + dir.toString(), ex);
+        }
+        return result;
     }
 
     /**
@@ -132,7 +242,7 @@ public final class FileSystemUtil {
 
                 @Override
                 public FileVisitResult preVisitDirectory(Path path, BasicFileAttributes atts) throws IOException {
-                    if (!sourceDir.equals(path)) {                                                
+                    if (!sourceDir.equals(path)) {
                         Path pathInZipfile = zipfs3.getPath(path.toString().replace(sourceDir.toString(), ""));
                         Files.createDirectories(pathInZipfile);
                     }
