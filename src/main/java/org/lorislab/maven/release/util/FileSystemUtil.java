@@ -118,7 +118,7 @@ public final class FileSystemUtil {
             throw new RuntimeException("The source directory or target file can not be null!");
         }
 
-        if (!Files.isDirectory(targetFile)) {
+        if (!Files.isDirectory(sourceDir)) {
             throw new RuntimeException("The source directory is not directory!");
         }
 
@@ -132,8 +132,8 @@ public final class FileSystemUtil {
 
                 @Override
                 public FileVisitResult preVisitDirectory(Path path, BasicFileAttributes atts) throws IOException {
-                    if (!sourceDir.equals(path)) {
-                        Path pathInZipfile = zipfs3.getPath(path.toString().replaceFirst(sourceDir.toString(), ""));
+                    if (!sourceDir.equals(path)) {                                                
+                        Path pathInZipfile = zipfs3.getPath(path.toString().replace(sourceDir.toString(), ""));
                         Files.createDirectories(pathInZipfile);
                     }
                     return FileVisitResult.CONTINUE;
@@ -141,7 +141,7 @@ public final class FileSystemUtil {
 
                 @Override
                 public FileVisitResult visitFile(Path path, BasicFileAttributes mainAtts) throws IOException {
-                    Path pathInZipfile = zipfs3.getPath(path.toString().replaceFirst(sourceDir.toString(), ""));
+                    Path pathInZipfile = zipfs3.getPath(path.toString().replace(sourceDir.toString(), ""));
                     Files.copy(path, pathInZipfile);
                     return FileVisitResult.CONTINUE;
                 }
@@ -149,7 +149,7 @@ public final class FileSystemUtil {
             });
 
         } catch (Exception ex) {
-            throw new RuntimeException("Error creating the zip file " + targetFile.toString() + "from the directory " + sourceDir.toString(), ex);
+            throw new RuntimeException("Error creating the zip file " + targetFile.toString() + " from the directory " + sourceDir.toString(), ex);
         }
     }
 
