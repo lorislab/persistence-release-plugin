@@ -22,6 +22,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.apache.maven.plugin.AbstractMojo;
@@ -91,7 +92,7 @@ public class PersistenceReleaseMojo extends AbstractMojo {
      * The filter property file.
      */
     @Parameter(required = true)
-    private String filterFile;
+    private String filter;
     
     /**
      * {@inheritDoc }
@@ -99,15 +100,13 @@ public class PersistenceReleaseMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         
-        Path propertyFile = Paths.get(filterFile);
-        if (!Files.exists(propertyFile)) {
-            throw new MojoExecutionException("Missing properties filter file");
+        // load the filter file
+        Properties properties = FileSystemUtil.loadProperties(filter);
+        final Map<String, String> values = new HashMap<>();
+        for (String key : properties.stringPropertyNames()) {
+            values.put(key, properties.getProperty(key));
         }
         
-        Properties
-        final Map<String, String> values = new HashMap<>();
-        values.put("hibernate.dialect", "XXXXXXXXXXX");
-
         // release file: tarhet/project.ear
         Path releaseFile = project.getArtifact().getFile().toPath();
 

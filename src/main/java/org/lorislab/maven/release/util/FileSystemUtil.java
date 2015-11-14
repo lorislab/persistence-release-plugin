@@ -70,7 +70,7 @@ public final class FileSystemUtil {
     }
 
     public static Properties loadProperties(String file) {
-        Properties result = new Properties();;
+        Properties result = new Properties();
         
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("The property file is null!");
@@ -80,13 +80,13 @@ public final class FileSystemUtil {
         if (!Files.exists(propertyFile)) {
             throw new RuntimeException("Missing properties filter file");
         }
-        
 
-        
-
-        try (FileInputStream input = new FileInputStream(file)) {;
+        try  (InputStream input = new FileInputStream(propertyFile.toFile())) {
             result.load(input);
+        } catch (Exception ex) {
+            throw new RuntimeException("Error loading the property from file: " + file, ex);
         }
+        
         return result;
     }
     public static Path createDirectory(Path parent, String name) {
