@@ -15,8 +15,10 @@
  */
 package org.lorislab.maven.release;
 
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
@@ -36,6 +38,8 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectHelper;
+import org.lorislab.maven.release.model.SearchPattern;
+import org.lorislab.maven.release.model.SearchResultItem;
 import org.lorislab.maven.release.persistence.PersistenceModifier;
 import org.lorislab.maven.release.persistence.PersistenceModifier10;
 import org.lorislab.maven.release.persistence.PersistenceModifier20;
@@ -51,18 +55,30 @@ import org.lorislab.maven.release.util.XMLUtil;
  */
 @Mojo(name = "release", inheritByDefault = false, requiresDependencyResolution = ResolutionScope.COMPILE,
         threadSafe = true)
-@Execute(goal = "release", phase = LifecyclePhase.PACKAGE)
+@Execute(goal = "release", phase = LifecyclePhase.PREPARE_PACKAGE)
 public class PersistenceReleaseMojo extends AbstractMojo {
 
     /**
-     * The EJB and WAR file pattern.
+     * The EJB/JAR file pattern.
      */
-    private static final Pattern FILE_PATTERN = Pattern.compile("^(.*?[.jar|.war])");
+    private static final SearchPattern JAR_SEARCH_PATTERN = new SearchPattern("^(.*?[.jar])", "jar");
+    /**
+     * The WAR file pattern.
+     */    
+    private static final SearchPattern WAR_SEARCH_PATTERN = new SearchPattern("^(.*?[.war])", "war");
 
     /**
-     * The persistence file pattern.
+     * The set of archive patterns.
      */
-    private static final Pattern PERSISTENCE_XML_PATTERN = Pattern.compile("^(.*?persistence.xml)");
+    private static final Set<SearchPattern> PATTERNS = new HashSet<>();
+    
+    /**
+     * The archive files patterns.
+     */
+    static {
+        PATTERNS.add(JAR_SEARCH_PATTERN);
+        PATTERNS.add(WAR_SEARCH_PATTERN);
+    }
 
     /**
      * The persistence modifier.
@@ -77,7 +93,20 @@ public class PersistenceReleaseMojo extends AbstractMojo {
         MODIFIER.put("2.0", new PersistenceModifier20());
         MODIFIER.put("2.1", new PersistenceModifier21());
     }
-
+    
+    /**
+     * The map of persistence file location.
+     */
+    private static final Map<String, String> PERSISTENCE_XML = new HashMap<>();
+    
+    /**
+     * Static block.
+     */
+    static {
+        PERSISTENCE_XML.put("war", "\\WEB-INF\\classes\\META-INF\\persistence.xml");
+        PERSISTENCE_XML.put("jar", "\\META-INF\\persistence.xml");
+    }
+    
     /**
      * The release archive classifier.
      */
@@ -102,6 +131,12 @@ public class PersistenceReleaseMojo extends AbstractMojo {
     @Parameter(required = true)
     private String properties;
 
+    /**
+     * The create release directory flag.
+     */
+    @Parameter(required = false, defaultValue = "false")
+    private boolean releaseDir;
+    
     /**
      * {@inheritDoc }
      */
@@ -130,16 +165,22 @@ public class PersistenceReleaseMojo extends AbstractMojo {
         final Path tmpDir = FileSystemUtil.createDirectory(buildDir, "persistence");
 
         if ("jar".equals(project.getPackaging()) || "war".equals(project.getPackaging())) {
-
+            
             final Path releasePersistenceFile = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier + "." + project.getPackaging());
             FileSystemUtil.copyFile(releaseFile, releasePersistenceFile);
             
             final Set<Path> changeFiles = new HashSet<>();
-            updatePersistenceXml(releasePersistenceFile, changeFiles, tmpDir, values);
-
+            SearchResultItem item = new SearchResultItem(releasePersistenceFile, project.getPackaging());            
+            updatePersistenceXml(item, changeFiles, tmpDir, values);
+            
             if (!changeFiles.isEmpty()) {
                 // attache the artifact to the project
                 projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
+            
+                if (releaseDir) {
+                    Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);                
+                    FileSystemUtil.unzip(releasePersistenceFile, releasePersistenceDir);                
+                }
             } else {
                 getLog().info("No files containing the persistence.xml found.");
                 FileSystemUtil.delete(releasePersistenceFile);
@@ -151,12 +192,12 @@ public class PersistenceReleaseMojo extends AbstractMojo {
             Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);
             FileSystemUtil.unzip(releaseFile, releasePersistenceDir);
 
-            Set<Path> files = FileSystemUtil.findFilesInDirectory(releasePersistenceDir, FILE_PATTERN);
+            Set<SearchResultItem> files = FileSystemUtil.findFilesInDirectory(releasePersistenceDir, PATTERNS);
 
             final Set<Path> changeFiles = new HashSet<>();
 
             if (files != null && !files.isEmpty()) {
-                for (final Path file : files) {
+                for (final SearchResultItem file : files) {
                     updatePersistenceXml(file, changeFiles, tmpDir, values);
                 }
             }
@@ -168,6 +209,10 @@ public class PersistenceReleaseMojo extends AbstractMojo {
 
                 // attache the artifact to the project
                 projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
+                
+                if (!releaseDir) {
+                    FileSystemUtil.delete(releasePersistenceDir);
+                }
             } else {
                 getLog().info("No files containing the persistence.xml found.");
             }
@@ -179,22 +224,22 @@ public class PersistenceReleaseMojo extends AbstractMojo {
     /**
      * Updates the persistence XML files.
      *
-     * @param file the archive file.
+     * @param zip the archive file.
      * @param changeFiles the set of change files.
      * @param modifier the persistence XML modifier.
      * @param tmpDir the temporary directory.
      * @param values the map of properties values.
      */
-    private void updatePersistenceXml(final Path file, final Set<Path> changeFiles, final Path tmpDir, final Map<String, String> values) {
-        FileSystemUtil.processFileInsideZip(file, PERSISTENCE_XML_PATTERN, new ProcessingCallback() {
+    private void updatePersistenceXml(final SearchResultItem file, final Set<Path> changeFiles, final Path tmpDir, final Map<String, String> values) {        
+        FileSystemUtil.getFileInZip(file.getPath(),  PERSISTENCE_XML.get(file.getExtension()), new ProcessingCallback() {
             @Override
             public void execute(Path path) throws Exception {
                 changeFiles.add(path);
 
-                getLog().info("Update the persistence.xml in the file: " + file.toString());
+                getLog().info("Start update of the persistence.xml in the file: " + file.getPath().toString());
 
                 // copy from archive
-                Path dir = FileSystemUtil.createDirectory(tmpDir, file.getFileName().toString());
+                Path dir = FileSystemUtil.createDirectory(tmpDir, file.getPath().getFileName().toString());
                 Path tmpFile = FileSystemUtil.createDirectory(Paths.get(dir.toString() + path.toString()), null);
                 Files.copy(path, tmpFile, StandardCopyOption.REPLACE_EXISTING);
 
@@ -211,6 +256,8 @@ public class PersistenceReleaseMojo extends AbstractMojo {
 
                 // copy back to archive
                 Files.copy(tmpFile, path, StandardCopyOption.REPLACE_EXISTING);
+                
+                getLog().info("Finished update of the persistence.xml in the file: " + file.getPath().toString());
             }
         });
     }

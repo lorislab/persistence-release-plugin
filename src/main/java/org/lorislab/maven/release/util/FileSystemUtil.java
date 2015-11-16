@@ -34,6 +34,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.lorislab.maven.release.model.SearchPattern;
+import org.lorislab.maven.release.model.SearchResultItem;
 
 /**
  * The file system utility.
@@ -156,6 +158,17 @@ public final class FileSystemUtil {
         return result;
     }
 
+    public static void getFileInZip(final Path zipFile, String file, final ProcessingCallback callback) {
+        try (FileSystem zipfs = ZIP_PROVIDER.newFileSystem(zipFile, new HashMap<String, Object>())) {
+            Path path = zipfs.getPath(file);
+            if (Files.exists(path)) {
+                callback.execute(path);
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException("Error searching files inside the ZIP archive " + zipFile.toString(), ex);
+        }
+    }
+
     /**
      * Processing the ZIP file.
      *
@@ -178,6 +191,7 @@ public final class FileSystemUtil {
                     if (matches) {
                         try {
                             callback.execute(file);
+                            return FileVisitResult.TERMINATE;
                         } catch (Exception ex) {
                             throw new RuntimeException("Error execute the file: " + file.toString(), ex);
                         }
@@ -194,12 +208,12 @@ public final class FileSystemUtil {
      * Finds all files in the root directory corresponding the pattern.
      *
      * @param dir the root directory.
-     * @param pattern the file pattern.
+     * @param patterns the file pattern.
      * @return the set of corresponding files.
      */
-    public static Set<Path> findFilesInDirectory(final Path dir, final Pattern pattern) {
+    public static Set<SearchResultItem> findFilesInDirectory(final Path dir, final Set<SearchPattern> patterns) {
 
-        final Set<Path> result = new HashSet<>();
+        final Set<SearchResultItem> result = new HashSet<>();
         try {
             Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
 
@@ -213,9 +227,13 @@ public final class FileSystemUtil {
                 public FileVisitResult visitFile(Path path, BasicFileAttributes mainAtts)
                         throws IOException {
 
-                    boolean matches = pattern.matcher(path.toString()).matches();
-                    if (matches) {
-                        result.add(path);
+                    for (SearchPattern pattern : patterns) {
+                        boolean matches = pattern.getPattern().matcher(path.toString()).matches();
+                        if (matches) {
+
+                            SearchResultItem item = new SearchResultItem(path,pattern.getExtensions());
+                            result.add(item);
+                        }
                     }
                     return FileVisitResult.CONTINUE;
                 }

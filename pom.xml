@@ -13,7 +13,7 @@
 	
     <scm>
         <connection>scm:git:https://github.com/lorislab/persistence-release-plugin.git</connection>
-        <developerConnection>scm:git:git@github.com:lorislabpersistence-release-plugin.git</developerConnection>
+        <developerConnection>scm:git:git@github.com:lorislab/persistence-release-plugin.git</developerConnection>
         <url>https://github.com/lorislab/persistence-release-plugin</url>
         <tag>HEAD</tag>
     </scm>
