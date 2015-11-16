@@ -18,10 +18,17 @@ package org.lorislab.maven.release.util;
 import java.nio.file.Path;
 
 /**
+ * The ZIP processing callback method.
  *
  * @author Andrej_Petras
  */
 public interface ProcessingCallback {
-    
+
+    /**
+     * Processing the file inside the ZIP file.
+     *
+     * @param path the file inside the ZIP file.
+     * @throws Exception if the method fails.
+     */
     public void execute(Path path) throws Exception;
 }

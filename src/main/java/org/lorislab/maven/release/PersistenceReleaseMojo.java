@@ -42,6 +42,7 @@ import org.lorislab.maven.release.persistence.PersistenceModifier20;
 import org.lorislab.maven.release.persistence.PersistenceModifier21;
 import org.lorislab.maven.release.util.FileSystemUtil;
 import org.lorislab.maven.release.util.ProcessingCallback;
+import org.lorislab.maven.release.util.XMLUtil;
 
 /**
  * The deployment task.
@@ -52,29 +53,36 @@ import org.lorislab.maven.release.util.ProcessingCallback;
         threadSafe = true)
 @Execute(goal = "release", phase = LifecyclePhase.PACKAGE)
 public class PersistenceReleaseMojo extends AbstractMojo {
-    
+
+    /**
+     * The EJB and WAR file pattern.
+     */
     private static final Pattern FILE_PATTERN = Pattern.compile("^(.*?[.jar|.war])");
-    
+
+    /**
+     * The persistence file pattern.
+     */
     private static final Pattern PERSISTENCE_XML_PATTERN = Pattern.compile("^(.*?persistence.xml)");
-    
+
+    /**
+     * The persistence modifier.
+     */
     private static final Map<String, PersistenceModifier> MODIFIER = new HashMap<>();
-    
+
+    /**
+     * Persistence version.
+     */
     static {
         MODIFIER.put("1.0", new PersistenceModifier10());
         MODIFIER.put("2.0", new PersistenceModifier20());
         MODIFIER.put("2.1", new PersistenceModifier21());
     }
+
     /**
      * The release archive classifier.
      */
     @Parameter(required = true)
     private String classifier;
-
-    /**
-     * The persistence XML version.
-     */
-    @Parameter(required = true, defaultValue = "2.0")
-    private String version;
 
     /**
      * The MAVEN ProjectHelper.
@@ -87,26 +95,28 @@ public class PersistenceReleaseMojo extends AbstractMojo {
      */
     @Component
     protected MavenProject project;
-    
+
     /**
      * The filter property file.
      */
     @Parameter(required = true)
-    private String filter;
-    
+    private String properties;
+
     /**
      * {@inheritDoc }
      */
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        
+
         // load the filter file
-        Properties properties = FileSystemUtil.loadProperties(filter);
+        Properties prop = FileSystemUtil.loadProperties(properties);
         final Map<String, String> values = new HashMap<>();
-        for (String key : properties.stringPropertyNames()) {
-            values.put(key, properties.getProperty(key));
+        for (String key : prop.stringPropertyNames()) {
+            String value = prop.getProperty(key);
+            getLog().debug("property: " + key + " new value: " + value);
+            values.put(key, value);
         }
-        
+
         // release file: tarhet/project.ear
         Path releaseFile = project.getArtifact().getFile().toPath();
 
@@ -116,61 +126,92 @@ public class PersistenceReleaseMojo extends AbstractMojo {
         // build release dir: target/project
         Path buildReleaseDir = buildDir.resolve(project.getBuild().getFinalName());
 
-        // unzip the release file to tmp directory: target/project-test
-        Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);
-        FileSystemUtil.unzip(releaseFile, releasePersistenceDir);
-        
-        Set<Path> files = FileSystemUtil.findFilesInDirectory(releasePersistenceDir, FILE_PATTERN);
-        
-        final Set<Path> changeFiles = new HashSet<>();
-        
-        if (files != null && !files.isEmpty()) {
+        // create the persistence temporary directory
+        final Path tmpDir = FileSystemUtil.createDirectory(buildDir, "persistence");
+
+        if ("jar".equals(project.getPackaging()) || "war".equals(project.getPackaging())) {
+
+            final Path releasePersistenceFile = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier + "." + project.getPackaging());
+            FileSystemUtil.copyFile(releaseFile, releasePersistenceFile);
             
-            final PersistenceModifier modifier = MODIFIER.get(version);
-            if (modifier == null) {
-                throw new MojoExecutionException("Missing the persistence.xml modifier for the version: " + version);
+            final Set<Path> changeFiles = new HashSet<>();
+            updatePersistenceXml(releasePersistenceFile, changeFiles, tmpDir, values);
+
+            if (!changeFiles.isEmpty()) {
+                // attache the artifact to the project
+                projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
+            } else {
+                getLog().info("No files containing the persistence.xml found.");
+                FileSystemUtil.delete(releasePersistenceFile);
             }
-            
-            // create the persistence temporary directory
-            final Path tmpDir = FileSystemUtil.createDirectory(buildDir, "persistence");
-            
-            
-            for (final Path file : files) {
 
-                FileSystemUtil.processFileInsideZip(file, PERSISTENCE_XML_PATTERN, new ProcessingCallback() {
-                    @Override
-                    public void execute(Path path) throws Exception {
-                        changeFiles.add(path);
+        } else if ("ear".equals(project.getPackaging())) {
 
-                        getLog().info("Update the persistence.xml in the file: " + file.toString());
-                        
-                        // copy from archive
-                        Path dir = FileSystemUtil.createDirectory(tmpDir, file.getFileName().toString());
-                        System.out.println(dir.toString());
-                        Path tmpFile = FileSystemUtil.createDirectory(Paths.get(dir.toString() + path.toString()), null);                       
-                        System.out.println(tmpFile.toString());
-                        Files.copy(path, tmpFile, StandardCopyOption.REPLACE_EXISTING);
+            // unzip the release file to tmp directory: target/project-test
+            Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);
+            FileSystemUtil.unzip(releaseFile, releasePersistenceDir);
 
-                        // change the persistence.xml
-                        modifier.modifier(tmpFile, values);
+            Set<Path> files = FileSystemUtil.findFilesInDirectory(releasePersistenceDir, FILE_PATTERN);
 
-                        // copy back to archive
-                        Files.copy(tmpFile, path, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                });
-            }            
-        }
-        
-        if (!changeFiles.isEmpty()) {
-            // create new archive: target/project-test.ear
-            Path releasePersistenceFile = buildDir.resolve(releasePersistenceDir.getFileName() + "." + project.getPackaging());
-            FileSystemUtil.zip(releasePersistenceDir, releasePersistenceFile);
+            final Set<Path> changeFiles = new HashSet<>();
 
-            // attache the artifact to the project
-            projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
+            if (files != null && !files.isEmpty()) {
+                for (final Path file : files) {
+                    updatePersistenceXml(file, changeFiles, tmpDir, values);
+                }
+            }
+
+            if (!changeFiles.isEmpty()) {
+                // create new archive: target/project-test.ear
+                Path releasePersistenceFile = buildDir.resolve(releasePersistenceDir.getFileName() + "." + project.getPackaging());
+                FileSystemUtil.zip(releasePersistenceDir, releasePersistenceFile);
+
+                // attache the artifact to the project
+                projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
+            } else {
+                getLog().info("No files containing the persistence.xml found.");
+            }
         } else {
-            getLog().info("No files for with persistence.xml found.");
+            getLog().warn("Not supported packing type: " + project.getPackaging());
         }
     }
-    
+
+    /**
+     * Updates the persistence XML files.
+     *
+     * @param file the archive file.
+     * @param changeFiles the set of change files.
+     * @param modifier the persistence XML modifier.
+     * @param tmpDir the temporary directory.
+     * @param values the map of properties values.
+     */
+    private void updatePersistenceXml(final Path file, final Set<Path> changeFiles, final Path tmpDir, final Map<String, String> values) {
+        FileSystemUtil.processFileInsideZip(file, PERSISTENCE_XML_PATTERN, new ProcessingCallback() {
+            @Override
+            public void execute(Path path) throws Exception {
+                changeFiles.add(path);
+
+                getLog().info("Update the persistence.xml in the file: " + file.toString());
+
+                // copy from archive
+                Path dir = FileSystemUtil.createDirectory(tmpDir, file.getFileName().toString());
+                Path tmpFile = FileSystemUtil.createDirectory(Paths.get(dir.toString() + path.toString()), null);
+                Files.copy(path, tmpFile, StandardCopyOption.REPLACE_EXISTING);
+
+                String version = XMLUtil.getXMLVersion(tmpFile);
+                getLog().debug("Version of the persistence.xml : " + file.toString() + " version: " + version);
+                
+                final PersistenceModifier modifier = MODIFIER.get(version);
+                if (modifier == null) {
+                    throw new MojoExecutionException("Missing the persistence.xml modifier for the version: " + version);
+                }                
+                
+                // change the persistence.xml
+                modifier.modifier(tmpFile, values);
+
+                // copy back to archive
+                Files.copy(tmpFile, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        });
+    }
 }

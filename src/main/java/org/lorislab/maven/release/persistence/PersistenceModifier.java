@@ -16,13 +16,29 @@
 package org.lorislab.maven.release.persistence;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.Map;
+import org.lorislab.maven.release.util.XMLUtil;
 
 /**
  *
  * @author Andrej_Petras
  */
-public interface PersistenceModifier {
+public abstract class PersistenceModifier<T> {
     
-    public void modifier(Path path, Map<String, String> values);
+    private final Class<T> clazz;
+
+    public PersistenceModifier(Class<T> clazz) {
+        this.clazz = clazz;
+    }
+        
+    public void modifier(Path path, Map<String, String> values) {
+        T persistence = XMLUtil.loadObject(path, clazz);
+        
+        Map<String, String> tmp = new HashMap<>(values);
+        modifier(persistence, tmp);
+        XMLUtil.saveObject(path, persistence);        
+    }
+    
+    protected abstract void modifier(T persistence, Map<String, String> values);
 }

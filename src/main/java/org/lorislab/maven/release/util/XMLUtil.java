@@ -15,26 +15,70 @@
  */
 package org.lorislab.maven.release.util;
 
+import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.Marshaller;
 import javax.xml.bind.Unmarshaller;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamReader;
 
 /**
+ * The XML utility.
  *
  * @author Andrej_Petras
  */
-public class XMLUtil {
+public final class XMLUtil {
 
+    /**
+     * The default constructor.
+     */
     private XMLUtil() {
+        // empty constructor
     }
-    
+
+    /**
+     * Gets the version of the XML.
+     *
+     * @param path the XML file.
+     * @return the corresponding version of the XML.
+     */
+    public static String getXMLVersion(final Path path) {
+        try (InputStream inputStream = Files.newInputStream(path)) {
+            XMLStreamReader reader = XMLInputFactory.newInstance().createXMLStreamReader(inputStream);
+            for (int event; (event = reader.next()) != XMLStreamConstants.END_DOCUMENT;) {
+                if (event == XMLStreamConstants.START_ELEMENT) {
+                    String tmp = reader.getLocalName();
+                    if ("persistence".equals(tmp)) {
+                        for (int i = 0; i < reader.getAttributeCount(); i++) {
+                            if ("version".equals(reader.getAttributeName(i).toString())) {
+                                return reader.getAttributeValue(i);
+                            }                            
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException("Error reading the persistence.xml version.", ex);
+        }
+        return null;
+    }
+
+    /**
+     * Saves the object to the file.
+     *
+     * @param <T> the object type.
+     * @param path the XML file.
+     * @param object the object to be saved.
+     */
     public static <T> void saveObject(Path path, T object) {
-        
+
         if (path == null || object == null) {
             throw new RuntimeException("The path to file or object is null!");
         }
-        
+
         try {
             JAXBContext jaxbContext = JAXBContext.newInstance(object.getClass());
             Marshaller jaxbMarshaller = jaxbContext.createMarshaller();
@@ -45,6 +89,14 @@ public class XMLUtil {
         }
     }
 
+    /**
+     * Loads the object from the file.
+     *
+     * @param <T> the object type.
+     * @param path the XML file.
+     * @param clazz the class of the object.
+     * @return the corresponding object.
+     */
     public static <T> T loadObject(Path path, Class<T> clazz) {
         T result;
         if (path == null || clazz == null) {

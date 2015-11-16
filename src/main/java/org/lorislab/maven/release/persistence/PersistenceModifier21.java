@@ -15,39 +15,74 @@
  */
 package org.lorislab.maven.release.persistence;
 
-import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 import org.lorislab.maven.release.persistence.jpa21.Persistence;
-import org.lorislab.maven.release.util.XMLUtil;
 
 /**
- *
+ * The persistence modifier for version 2.1
+ * 
  * @author Andrej_Petras
  */
-public class PersistenceModifier21 implements PersistenceModifier {
+public class PersistenceModifier21 extends PersistenceModifier<Persistence> {
 
+    /**
+     * The default constructor.
+     */
+    public PersistenceModifier21() {
+        super(Persistence.class);
+    }
+    
+   
+    /**
+     * {@inheritDoc }
+     */
     @Override
-    public void modifier(Path path, Map<String, String> values) {
-
-        Persistence persistence = XMLUtil.loadObject(path, Persistence.class);
-
+    public void modifier(Persistence persistence, Map<String, String> values) {
+        
         List<Persistence.PersistenceUnit> units = persistence.getPersistenceUnit();
         if (units != null) {
             for (Persistence.PersistenceUnit unit : units) {
                 List<Persistence.PersistenceUnit.Properties.Property> properties = unit.getProperties().getProperty();
 
                 if (properties != null) {
+                    
+                    Set<Persistence.PersistenceUnit.Properties.Property> delete = new HashSet<>();                    
                     for (Persistence.PersistenceUnit.Properties.Property pro : properties) {
-                        if (values.containsKey(pro.getName())) {
-                            pro.setValue(values.get(pro.getName()));                            
+                        
+                        String key = pro.getName();
+                        if (values.containsKey(key)) {
+                            
+                            String value = values.get(key);
+                            if (value == null || value.isEmpty()) {
+                                delete.add(pro);
+                            } else {
+                                pro.setValue(value);
+                            }
+                            
+                            values.remove(key);
                         }
                     }
+                                                            
+                    // add new properties
+                    if (!values.isEmpty()) {
+                        for (Entry<String, String> entry : values.entrySet()) {
+                            Persistence.PersistenceUnit.Properties.Property prop = new Persistence.PersistenceUnit.Properties.Property();
+                            prop.setName(entry.getKey());
+                            prop.setValue(entry.getValue());
+                            properties.add(prop);
+                        }
+                    }
+                    
+                    // delete properties
+                    if (!delete.isEmpty()) {
+                        properties.removeAll(delete);
+                    }                    
                 }
             }
         }
-
-        XMLUtil.saveObject(path, persistence);
     }
-
 }

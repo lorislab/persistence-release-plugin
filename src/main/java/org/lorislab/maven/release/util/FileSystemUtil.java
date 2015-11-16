@@ -16,7 +16,6 @@
 package org.lorislab.maven.release.util;
 
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystem;
@@ -34,8 +33,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 /**
@@ -45,10 +42,19 @@ import java.util.regex.Pattern;
  */
 public final class FileSystemUtil {
 
+    /**
+     * The ZIP provider.
+     */
     private static final FileSystemProvider ZIP_PROVIDER;
 
+    /**
+     * The ZIP environment.
+     */
     private static final Map<String, String> ZIP_ENV = new HashMap<>();
 
+    /**
+     * Static block.
+     */
     static {
 
         ZIP_ENV.put("create", "true");
@@ -69,26 +75,69 @@ public final class FileSystemUtil {
         // empty constructor
     }
 
+    /**
+     * Copies the file from source to target.
+     *
+     * @param source the source file.
+     * @param target the target file.
+     */
+    public static void copyFile(Path source, Path target) {
+        try {
+            Files.copy(source, target);
+        } catch (Exception ex) {
+            throw new RuntimeException("Can not copy the source file " + source.toString() + " to target " + target.toString(), ex);
+        }
+    }
+
+    /**
+     * Moves the file from source to target.
+     *
+     * @param source the source file.
+     * @param target the target file.
+     */
+    public static void moveFile(Path source, Path target) {
+        try {
+            Files.move(source, target);
+        } catch (Exception ex) {
+            throw new RuntimeException("Can not move the source file " + source.toString() + " to target " + target.toString(), ex);
+        }
+    }
+
+    /**
+     * Loads properties from the file.
+     *
+     * @param file the property file.
+     * @return the corresponding properties.
+     */
     public static Properties loadProperties(String file) {
         Properties result = new Properties();
-        
+
         if (file == null || file.isEmpty()) {
             throw new RuntimeException("The property file is null!");
         }
-        
+
         Path propertyFile = Paths.get(file);
         if (!Files.exists(propertyFile)) {
             throw new RuntimeException("Missing properties filter file");
         }
 
-        try  (InputStream input = new FileInputStream(propertyFile.toFile())) {
+        try (InputStream input = new FileInputStream(propertyFile.toFile())) {
             result.load(input);
         } catch (Exception ex) {
             throw new RuntimeException("Error loading the property from file: " + file, ex);
         }
-        
+
         return result;
     }
+
+    /**
+     * Creates the directory with {@code name} in the parent directory
+     * {@code parent}
+     *
+     * @param parent the parent directory.
+     * @param name the new directory name.
+     * @return the corresponding new directory.
+     */
     public static Path createDirectory(Path parent, String name) {
         Path result = null;
         try {
@@ -97,7 +146,7 @@ public final class FileSystemUtil {
             } else {
                 result = parent;
             }
-            
+
             if (!Files.exists(result)) {
                 Files.createDirectories(result);
             }
@@ -106,6 +155,14 @@ public final class FileSystemUtil {
         }
         return result;
     }
+
+    /**
+     * Processing the ZIP file.
+     *
+     * @param zipFile the ZIP file.
+     * @param pattern the resource pattern.
+     * @param callback the call-back method.
+     */
     public static void processFileInsideZip(final Path zipFile, final Pattern pattern, final ProcessingCallback callback) {
 
         try (FileSystem zipfs = ZIP_PROVIDER.newFileSystem(zipFile, new HashMap<String, Object>())) {
@@ -119,10 +176,9 @@ public final class FileSystemUtil {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     boolean matches = pattern.matcher(file.toString()).matches();
                     if (matches) {
-                        try {                            
+                        try {
                             callback.execute(file);
                         } catch (Exception ex) {
-                            ex.printStackTrace();
                             throw new RuntimeException("Error execute the file: " + file.toString(), ex);
                         }
                     }
