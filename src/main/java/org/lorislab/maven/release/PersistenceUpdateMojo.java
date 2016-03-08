@@ -17,11 +17,11 @@ package org.lorislab.maven.release;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
+import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Component;
@@ -31,31 +31,18 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
-import org.apache.maven.project.MavenProjectHelper;
 import org.lorislab.maven.release.model.SearchResultItem;
 import org.lorislab.maven.release.util.FileSystemUtil;
 
 /**
- * The deployment task.
+ * The update task.
  *
  * @author Andrej Petras
  */
-@Mojo(name = "release", inheritByDefault = false, requiresDependencyResolution = ResolutionScope.COMPILE,
+@Mojo(name = "update", inheritByDefault = false, requiresDependencyResolution = ResolutionScope.COMPILE,
         threadSafe = true)
-@Execute(goal = "release", phase = LifecyclePhase.PREPARE_PACKAGE)
-public class PersistenceReleaseMojo extends AbstractPersistenceMojo {
-
-    /**
-     * The release archive classifier.
-     */
-    @Parameter(required = true)
-    private String classifier;
-
-    /**
-     * The MAVEN ProjectHelper.
-     */
-    @Component
-    private MavenProjectHelper projectHelper;
+@Execute(goal = "update", phase = LifecyclePhase.PREPARE_PACKAGE)
+public class PersistenceUpdateMojo extends AbstractPersistenceMojo {
 
     /**
      * The MAVEN project.
@@ -74,7 +61,19 @@ public class PersistenceReleaseMojo extends AbstractPersistenceMojo {
      */
     @Parameter(required = false, defaultValue = "false")
     private boolean releaseDir;
-    
+
+    /**
+     * The update artifact <groupId>:<artifactId>
+     */
+    @Parameter(required = true)
+    private String updateArtifact;
+
+    /**
+     * Delete the backup files.
+     */
+    @Parameter(required = false, defaultValue = "true")
+    private boolean deleteBackup;
+
     /**
      * {@inheritDoc }
      */
@@ -84,44 +83,76 @@ public class PersistenceReleaseMojo extends AbstractPersistenceMojo {
         // load the filter file
         final Map<String, String> values = loadProperties(properties);
 
-        // release file: tarhet/project.ear
-        Path releaseFile = project.getArtifact().getFile().toPath();
+        Artifact artifact = null;
+        String[] ii = updateArtifact.split(":");
+        String groupId = ii[0];
+        String artifactId = ii[1];
+
+        Set<Artifact> arts = (Set<Artifact>) project.getDependencyArtifacts();
+        if (arts != null) {
+            Iterator<Artifact> iter = arts.iterator();
+            while (artifact == null && iter.hasNext()) {
+                Artifact i = iter.next();
+                if (i.getGroupId().equals(groupId) && i.getArtifactId().equals(artifactId)) {
+                    artifact = i;
+                }
+            }
+        }
+
+        if (artifact != null) {
+            release(values, artifact);
+        } else {
+            getLog().warn("Not update artifact found. Release artifact " + updateArtifact);
+        }
+    }
+
+    private void release(final Map<String, String> values, Artifact artifact) {
 
         // build directory: target
         Path buildDir = Paths.get(project.getBuild().getDirectory());
+        buildDir = FileSystemUtil.createDirectory(buildDir, "persistence-update");
 
-        // build release dir: target/project
-        Path buildReleaseDir = buildDir.resolve(project.getBuild().getFinalName());
+        Path ap = artifact.getFile().toPath();
+        Path releaseFile = buildDir.resolve(ap.getFileName());
+
+        FileSystemUtil.copyFile(ap, releaseFile);
 
         // create the persistence temporary directory
-        final Path tmpDir = FileSystemUtil.createDirectory(buildDir, "persistence-release");
+        final Path tmpDir = FileSystemUtil.createDirectory(buildDir, "persistence-tmp");
 
-        if ("jar".equals(project.getPackaging()) || "war".equals(project.getPackaging())) {
-            
-            final Path releasePersistenceFile = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier + "." + project.getPackaging());
+        if ("jar".equals(artifact.getType()) || "war".equals(artifact.getType())) {
+
+            final Path releasePersistenceFile = buildDir.resolve(ap.getFileName() + "-update");
             FileSystemUtil.copyFile(releaseFile, releasePersistenceFile);
-            
+
             final Set<Path> changeFiles = new HashSet<>();
-            SearchResultItem item = new SearchResultItem(releasePersistenceFile, project.getPackaging());            
+            SearchResultItem item = new SearchResultItem(releasePersistenceFile, project.getPackaging());
             updatePersistenceXml(item, changeFiles, tmpDir, values);
-            
+
             if (!changeFiles.isEmpty()) {
-                // attache the artifact to the project
-                projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
-            
-                if (releaseDir) {
-                    Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);                
-                    FileSystemUtil.unzip(releasePersistenceFile, releasePersistenceDir);                
+                if (deleteBackup) {
+                    FileSystemUtil.delete(releaseFile);                    
+                } else {
+                    final Path backupFile = buildDir.resolve(ap.getFileName() + "-backup");
+                    FileSystemUtil.moveFile(releaseFile, backupFile);                    
                 }
+                FileSystemUtil.moveFile(releasePersistenceFile, releaseFile);
+                
+                if (releaseDir) {
+                    Path releasePersistenceDir = buildDir.resolve(ap.getFileName() + "-update");
+                    FileSystemUtil.unzip(releasePersistenceFile, releasePersistenceDir);
+                }
+
             } else {
                 getLog().info("No files containing the persistence.xml found.");
                 FileSystemUtil.delete(releasePersistenceFile);
+                FileSystemUtil.delete(tmpDir);
             }
 
-        } else if ("ear".equals(project.getPackaging())) {
+        } else if ("ear".equals(artifact.getType())) {
 
             // unzip the release file to tmp directory: target/project-test
-            Path releasePersistenceDir = buildDir.resolve(buildReleaseDir.getFileName() + "-" + classifier);
+            Path releasePersistenceDir = buildDir.resolve(ap.getFileName() + "-update");
             FileSystemUtil.unzip(releaseFile, releasePersistenceDir);
 
             Set<SearchResultItem> files = FileSystemUtil.findFilesInDirectory(releasePersistenceDir, PATTERNS);
@@ -135,13 +166,17 @@ public class PersistenceReleaseMojo extends AbstractPersistenceMojo {
             }
 
             if (!changeFiles.isEmpty()) {
-                // create new archive: target/project-test.ear
-                Path releasePersistenceFile = buildDir.resolve(releasePersistenceDir.getFileName() + "." + project.getPackaging());
-                FileSystemUtil.zip(releasePersistenceDir, releasePersistenceFile);
 
-                // attache the artifact to the project
-                projectHelper.attachArtifact(project, releasePersistenceFile.toFile(), classifier);
-                
+                if (deleteBackup) {
+                    FileSystemUtil.delete(releaseFile);
+                } else {
+                    final Path backupFile = buildDir.resolve(ap.getFileName() + "-backup");
+                    FileSystemUtil.moveFile(releaseFile, backupFile);
+                }
+
+                // create new archive: target/project-test.ear
+                FileSystemUtil.zip(releasePersistenceDir, releaseFile);
+
                 if (!releaseDir) {
                     FileSystemUtil.delete(releasePersistenceDir);
                 }
@@ -149,8 +184,10 @@ public class PersistenceReleaseMojo extends AbstractPersistenceMojo {
                 getLog().info("No files containing the persistence.xml found.");
             }
         } else {
-            getLog().warn("Not supported packing type: " + project.getPackaging());
+            getLog().warn("Not supported packing type: " + artifact.getType());
         }
+
+        FileSystemUtil.delete(tmpDir);
     }
 
 }
