@@ -92,6 +92,11 @@ public abstract class AbstractPersistenceMojo extends AbstractMojo {
         PERSISTENCE_XML.put("jar", "\\META-INF\\persistence.xml");
     }
 
+    /**
+     * Loads the properties.
+     * @param properties the property file.
+     * @return the loaded properties.
+     */
     protected Map<String, String> loadProperties(String properties) {
         Properties prop = FileSystemUtil.loadProperties(properties);
         final Map<String, String> values = new HashMap<>();
@@ -106,6 +111,7 @@ public abstract class AbstractPersistenceMojo extends AbstractMojo {
     /**
      * Updates the persistence XML files.
      *
+     * @param file the file.
      * @param changeFiles the set of change files.
      * @param tmpDir the temporary directory.
      * @param values the map of properties values.

@@ -104,9 +104,8 @@
                 <version>2.9.1</version>
                 <inherited>true</inherited>
                 <configuration>
-                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa21</excludePackageNames>
-                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa20</excludePackageNames>
-                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa10</excludePackageNames>
+                    <!--<excludePackageNames>org.lorislab.maven.release.persistence.jpa21:org.lorislab.maven.release.persistence.jpa20:org.lorislab.maven.release.persistence.jpa10</excludePackageNames>-->
+                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa*</excludePackageNames>
                     <aggregate>true</aggregate>
                     <links>
                         <link>http://docs.oracle.com/javase/8/docs/api/</link>
