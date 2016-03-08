@@ -104,9 +104,12 @@
                 <version>2.9.1</version>
                 <inherited>true</inherited>
                 <configuration>
+                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa21</excludePackageNames>
+                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa20</excludePackageNames>
+                    <excludePackageNames>org.lorislab.maven.release.persistence.jpa10</excludePackageNames>
                     <aggregate>true</aggregate>
                     <links>
-                        <link>http://java.sun.com/javase/7/docs/api/</link>
+                        <link>http://docs.oracle.com/javase/8/docs/api/</link>
                     </links>
                 </configuration>
             </plugin>
