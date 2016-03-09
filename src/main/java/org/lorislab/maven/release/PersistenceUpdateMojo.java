@@ -75,6 +75,12 @@ public class PersistenceUpdateMojo extends AbstractPersistenceMojo {
     private boolean deleteBackup;
 
     /**
+     * The output file name.
+     */
+    @Parameter
+    private String filename;
+    
+    /**
      * {@inheritDoc }
      */
     @Override
@@ -99,21 +105,16 @@ public class PersistenceUpdateMojo extends AbstractPersistenceMojo {
             }
         }
 
-        if (artifact != null) {
-            release(values, artifact);
-        } else {
-            getLog().warn("Not update artifact found. Release artifact " + updateArtifact);
-        }
-    }
-
-    private void release(final Map<String, String> values, Artifact artifact) {
-
         // build directory: target
         Path buildDir = Paths.get(project.getBuild().getDirectory());
         buildDir = FileSystemUtil.createDirectory(buildDir, "persistence-update");
 
+        if (filename == null || filename.isEmpty()) {
+            filename = artifact.getArtifactId() + "-" + artifact.getVersion() + "." + artifact.getType();
+        }
+        
         Path ap = artifact.getFile().toPath();
-        Path releaseFile = buildDir.resolve(ap.getFileName());
+        Path releaseFile = buildDir.resolve(filename);
 
         FileSystemUtil.copyFile(ap, releaseFile);
 
